@@ -2,21 +2,21 @@
 # Automatically-generated file. Do not edit!
 ################################################################################
 
-# Add inputs and outputs from these tool invocations to the build variables 
+# Add inputs and outputs from these tool invocations to the build variables
 CPP_SRCS += \
 ../src/ChannelWriter.cpp \
 ../src/Display.cpp \
-../src/newdecoder.cpp 
+../src/newdecoder.cpp
 
 OBJS += \
 ./src/ChannelWriter.o \
 ./src/Display.o \
-./src/newdecoder.o 
+./src/newdecoder.o
 
 CPP_DEPS += \
 ./src/ChannelWriter.d \
 ./src/Display.d \
-./src/newdecoder.d 
+./src/newdecoder.d
 
 
 # Each subdirectory must supply rules for building sources it contributes

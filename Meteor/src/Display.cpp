@@ -14,6 +14,7 @@ Display::Display() {
     this->packetNumber = 0;
     this->vitErrors = 0;
     this->frameBits = 0;
+    this->correlationPos = 0;
 
     for (int i = 0; i < 4; i++) {
         this->rsErrors[i] = 0;
@@ -80,19 +81,20 @@ void Display::show() {
     for (int i = 0; i < maxChannels - printedChannels; i++) {
         std::cout << "|                                      |        |              |              |" << std::endl;
     }
-
+    std::cout << "| Correlation Pos: " << std::setw(10) << (int)correlationPos << "                                                 |" << std::endl;
     std::cout << "└─────────────────────────────────────────────────────────────────────────────┘";
 }
 
 void Display::update(uint8_t scid, uint8_t vcid, uint64_t packetNumber, uint16_t vitErrors, uint16_t frameBits, int32_t *rsErrors, uint8_t signalQuality,
         uint8_t syncCorrelation, uint16_t phaseCorrection, uint64_t lostPackets, uint16_t averageVitCorrections, uint8_t averageRSCorrections,
-        uint64_t droppedPackets, int64_t *receivedPacketsPerChannel, int64_t *lostPacketsPerChannel, uint64_t totalPackets) {
+        uint64_t droppedPackets, int64_t *receivedPacketsPerChannel, int64_t *lostPacketsPerChannel, uint64_t totalPackets, uint8_t pos) {
 
     this->scid = scid;
     this->vcid = vcid;
     this->packetNumber = packetNumber;
     this->vitErrors = vitErrors;
     this->frameBits = frameBits;
+    this->correlationPos = pos;
 
     for (int i = 0; i < 4; i++) {
         this->rsErrors[i] = rsErrors[i];

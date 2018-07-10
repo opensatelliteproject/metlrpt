@@ -9,7 +9,7 @@
 #include <iostream>
 #include <memory.h>
 #include <cstdint>
-#include <sathelper.h>
+#include <SatHelper/sathelper.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "Display.h"
@@ -35,6 +35,11 @@ const uint64_t UW1 = 0x56fbd394daa4c1c2;
 const uint64_t UW2 = 0x035d49c24ff2686b;
 const uint64_t UW3 = 0xa9042c6b255b3e3d;
 
+const uint64_t IQUW0 = 0xfc51793e700e6b68;
+const uint64_t IQUW1 = 0xa9f7e368e558c2c1;
+const uint64_t IQUW2 = 0x03ae86c18ff19497;
+const uint64_t IQUW3 = 0x56081c971aa73d3e;
+
 int main() {
     uint8_t codedData[CODEDFRAMESIZE];
     uint8_t decodedData[FRAMESIZE];
@@ -54,7 +59,7 @@ int main() {
     SatHelper::Correlator correlator;
     SatHelper::PacketFixer packetFixer;
     SatHelper::Viterbi27 viterbi(FRAMEBITS);
-    SatHelper::ReedSolomon reedSolomon(PARITY_OFFSET);
+    SatHelper::ReedSolomon reedSolomon;
     SatHelper::DeRandomizer deRandomizer;
     ChannelWriter channelWriter("channels");
 
@@ -71,6 +76,11 @@ int main() {
     correlator.addWord(UW2);
     correlator.addWord(UW3);
 
+    correlator.addWord(IQUW0);
+    correlator.addWord(IQUW1);
+    correlator.addWord(IQUW2);
+    correlator.addWord(IQUW3);
+
     // Socket Init
     SatHelper::TcpServer tcpServer;
     tcpServer.Listen(5000);
@@ -80,6 +90,10 @@ int main() {
     cout << "Client connected!" << endl;
 
     SatHelper::ScreenManager::Clear();
+
+    FILE *f = fopen("dec.data", "wb");
+    FILE *f2 = fopen("enc.data", "wb");
+    FILE *f3 = fopen("sync.data", "wb");
 
     while (true) {
         uint32_t chunkSize = CODEDFRAMESIZE;
@@ -98,12 +112,15 @@ int main() {
             uint32_t pos = correlator.getHighestCorrelationPosition();
             uint32_t corr = correlator.getHighestCorrelation();
             SatHelper::PhaseShift phaseShift;
-            switch (word) {
+            bool iqInv = (word / 4) > 0;
+            switch (word % 4) {
 				case 0: phaseShift = SatHelper::PhaseShift::DEG_0; break;
 				case 1: phaseShift = SatHelper::PhaseShift::DEG_90; break;
 				case 2: phaseShift = SatHelper::PhaseShift::DEG_180; break;
 				case 3: phaseShift = SatHelper::PhaseShift::DEG_270; break;
             }
+
+            std::cout << (int) word << " " << iqInv << std::endl;
 
             if (corr < MINCORRELATIONBITS) {
                 cerr << "Correlation didn't match criteria of " << MINCORRELATIONBITS << " bits." << std::endl;
@@ -126,11 +143,16 @@ int main() {
                 client.Receive((char *) (codedData + CODEDFRAMESIZE - pos), chunkSize);
             }
 
+            fwrite(codedData, 1, CODEDFRAMESIZE, f3);
+
             // Fix Phase Shift
-            packetFixer.fixPacket(codedData, CODEDFRAMESIZE, phaseShift, false);
+            packetFixer.fixPacket(codedData, CODEDFRAMESIZE, phaseShift, iqInv);
+
+            fwrite(codedData, 1, CODEDFRAMESIZE, f2);
 
             // Viterbi Decode
             viterbi.decode(codedData, decodedData);
+            fwrite(decodedData, 1, FRAMESIZE, f);
             float signalErrors = viterbi.GetPercentBER(); // 0 to 16
             signalErrors = 100 - (signalErrors * 10);
             uint8_t signalQuality = signalErrors < 0 ? 0 : (uint8_t)signalErrors;
@@ -150,6 +172,18 @@ int main() {
               reedSolomon.interleave(rsWorkBuffer, rsCorrectedData, i, RSBLOCKS);
             }
 
+            uint16_t phaseCorr;
+            switch (phaseShift) {
+                case SatHelper::PhaseShift::DEG_0: phaseCorr = 0; break;
+                case SatHelper::PhaseShift::DEG_90: phaseCorr = 90; break;
+                case SatHelper::PhaseShift::DEG_180: phaseCorr = 180; break;
+                case SatHelper::PhaseShift::DEG_270: phaseCorr = 270; break;
+            }
+
+            if (iqInv) {
+                phaseCorr += 1;
+            }
+
             if (derrors[0] == -1 && derrors[1] == -1 && derrors[2] == -1 && derrors[3] == -1) {
               droppedPackets++;
               #ifdef DUMP_CORRUPTED_PACKETS
@@ -161,9 +195,9 @@ int main() {
               uint16_t partialVitCorrections = (uint16_t) (averageVitCorrections / frameCount);
               uint8_t partialRSCorrections = (uint8_t) (averageRSCorrections / frameCount);
               display.update(0, 0, 0, viterbi.GetBER(), FRAMEBITS, derrors,
-                      signalQuality, corr, 0,
+                      signalQuality, corr, phaseCorr,
                       lostPackets, partialVitCorrections, partialRSCorrections,
-                      droppedPackets, receivedPacketsPerFrame, lostPacketsPerFrame, frameCount);
+                      droppedPackets, receivedPacketsPerFrame, lostPacketsPerFrame, frameCount, pos);
 
               display.show();
               continue;
@@ -195,20 +229,14 @@ int main() {
 
             lastPacketCount[vcid] = counter;
             receivedPacketsPerFrame[vcid] = receivedPacketsPerFrame[vcid] == -1 ? 1 : receivedPacketsPerFrame[vcid] + 1;
-            uint16_t phaseCorr;
-            switch (phaseShift) {
-				case SatHelper::PhaseShift::DEG_0: phaseCorr = 0; break;
-				case SatHelper::PhaseShift::DEG_90: phaseCorr = 90; break;
-				case SatHelper::PhaseShift::DEG_180: phaseCorr = 180; break;
-				case SatHelper::PhaseShift::DEG_270: phaseCorr = 270; break;
-            }
+
             uint16_t partialVitCorrections = (uint16_t) (averageVitCorrections / frameCount);
             uint8_t partialRSCorrections = (uint8_t) (averageRSCorrections / frameCount);
 
             display.update(scid, vcid, (uint64_t) counter, (int16_t) viterbi.GetBER(), FRAMEBITS, derrors,
                     signalQuality, corr, phaseCorr,
                     lostPackets, partialVitCorrections, partialRSCorrections,
-                    droppedPackets, receivedPacketsPerFrame, lostPacketsPerFrame, frameCount);
+                    droppedPackets, receivedPacketsPerFrame, lostPacketsPerFrame, frameCount, pos);
 
             display.show();
 
@@ -219,6 +247,8 @@ int main() {
             break;
         }
     }
+    fclose(f);
+    fclose(f2);
 
     client.Close();
     return 0;
